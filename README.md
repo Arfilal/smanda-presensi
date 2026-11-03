@@ -1,4 +1,4 @@
-# SMANDA Presensi - SMAN 2 Cilacap
+# SMANDA Presensi
 
 > Sistem Presensi Digital berbasis Web dan Mobile-First UI yang dikembangkan menggunakan **Laravel 11**, **Bootstrap 5**, dan **MySQL**. Sistem ini dirancang untuk mendukung manajemen kehadiran siswa secara real-time dengan verifikasi geofencing GPS, swafoto wajah (*selfie*), serta manajemen multi-role yang terintegrasi.
 
