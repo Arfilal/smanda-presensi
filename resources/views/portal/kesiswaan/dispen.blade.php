@@ -40,8 +40,8 @@
                         @if($p->status_approval == 'Pending')
                             <form action="{{ route('kesiswaan.dispen.update', $p->id) }}" method="POST" class="d-inline">
                                 @csrf
-                                <button type="submit" name="status" value="Disetujui" class="btn btn-sm btn-success py-0 px-2" style="font-size: 11px;">Setujui</button>
-                                <button type="submit" name="status" value="Ditolak" class="btn btn-sm btn-danger py-0 px-2" style="font-size: 11px;">Tolak</button>
+                                <button type="submit" name="status_approval" value="Disetujui" class="btn btn-sm btn-success py-0 px-2" style="font-size: 11px;">Setujui</button>
+                                <button type="submit" name="status_approval" value="Ditolak" class="btn btn-sm btn-danger py-0 px-2" style="font-size: 11px;">Tolak</button>
                             </form>
                         @else
                             <span class="text-muted small fst-italic">Selesai diproses</span>

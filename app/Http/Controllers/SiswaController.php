@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PengajuanIzin;
+use App\Models\Presensi;
+use App\Models\Siswa;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\Siswa;
-use App\Models\Presensi;
-use App\Models\PengajuanIzin;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class SiswaController extends Controller
@@ -16,91 +18,177 @@ class SiswaController extends Controller
         return Siswa::where('user_id', Auth::id())->first();
     }
 
-    // 1. Dashboard Siswa (Ref: Gambar 4.2)
     public function dashboard()
     {
         $siswa = $this->getDataSiswa();
-        if (!$siswa) {
-            return view('portal.siswa.dashboard', ['siswa' => null]);
+        $sekarang = Carbon::now();
+
+        if (! $siswa) {
+            return view('portal.siswa.dashboard', [
+                'siswa' => null,
+                'presensiHariIni' => null,
+                'jadwalPresensi' => Presensi::jadwalPresensi($sekarang),
+                'sesiPresensi' => 'masuk',
+                'teksStatusPresensi' => 'Belum Absen',
+                'teksTombolPresensi' => 'Presensi Masuk',
+                'totalHadir' => 0,
+                'totalTerlambat' => 0,
+                'totalDispen' => 0,
+                'totalSakit' => 0,
+                'totalIzin' => 0,
+                'totalAlpha' => 0,
+            ]);
         }
 
-        $bulanIni = date('m');
-        $tahunIni = date('Y');
+        Presensi::sinkronkanPengajuanBulanan($siswa, $sekarang);
+        Presensi::sinkronkanAlpaBulanan($siswa, $sekarang, $sekarang);
+        Presensi::sinkronkanHariIni($siswa, $sekarang);
 
-        $totalHadir = Presensi::where('siswa_id', $siswa->id)->whereMonth('tgl_presensi', $bulanIni)->whereYear('tgl_presensi', $tahunIni)->where('status', 'hadir')->count();
-        $totalTerlambat = Presensi::where('siswa_id', $siswa->id)->whereMonth('tgl_presensi', $bulanIni)->whereYear('tgl_presensi', $tahunIni)->where('status', 'terlambat')->count();
-        $totalDispen = PengajuanIzin::where('siswa_id', $siswa->id)->where('jenis_izin', 'dispen')->where('status_approval', 'Disetujui')->count();
-        $totalSakit = PengajuanIzin::where('siswa_id', $siswa->id)->where('jenis_izin', 'sakit')->where('status_approval', 'Disetujui')->count();
-        $totalIzin = PengajuanIzin::where('siswa_id', $siswa->id)->where('jenis_izin', 'izin')->where('status_approval', 'Disetujui')->count();
-        $totalAlpha = Presensi::where('siswa_id', $siswa->id)->whereMonth('tgl_presensi', $bulanIni)->whereYear('tgl_presensi', $tahunIni)->where('status', 'alpa')->count();
+        $statusPresensi = Presensi::statusBeranda($siswa, $sekarang);
+        $ringkasan = Presensi::ringkasanBulanan($siswa, $sekarang);
 
-        $presensiHariIni = Presensi::where('siswa_id', $siswa->id)->whereDate('tgl_presensi', date('Y-m-d'))->first();
-
-        return view('portal.siswa.dashboard', compact('siswa', 'totalHadir', 'totalTerlambat', 'totalDispen', 'totalSakit', 'totalIzin', 'totalAlpha', 'presensiHariIni'));
+        return view('portal.siswa.dashboard', array_merge([
+            'siswa' => $siswa,
+            'presensiHariIni' => $statusPresensi['presensi'],
+            'jadwalPresensi' => $statusPresensi['jadwal'],
+            'sesiPresensi' => $statusPresensi['sesi'],
+            'teksStatusPresensi' => $statusPresensi['status_teks'],
+            'teksTombolPresensi' => $statusPresensi['teks_tombol'],
+        ], $ringkasan));
     }
 
-    // 2. Form Presensi Kamera Depan & GPS (Ref: Gambar 4.3)
     public function presensiForm()
     {
         $siswa = $this->getDataSiswa();
-        return view('portal.siswa.presensi', compact('siswa'));
+        $sekarang = Carbon::now();
+
+        if (! $siswa) {
+            return view('portal.siswa.presensi', [
+                'siswa' => null,
+                'jadwalPresensi' => Presensi::jadwalPresensi($sekarang),
+                'sesiPresensi' => 'masuk',
+                'teksStatusPresensi' => 'Belum Absen',
+            ]);
+        }
+
+        Presensi::sinkronkanHariIni($siswa, $sekarang);
+        $statusPresensi = Presensi::statusBeranda($siswa, $sekarang);
+
+        return view('portal.siswa.presensi', [
+            'siswa' => $siswa,
+            'jadwalPresensi' => $statusPresensi['jadwal'],
+            'sesiPresensi' => $statusPresensi['sesi'],
+            'teksStatusPresensi' => $statusPresensi['status_teks'],
+        ]);
     }
 
     public function storePresensi(Request $request)
     {
         $siswa = $this->getDataSiswa();
-        if (!$siswa) return back()->with('error', 'Siswa tidak ditemukan.');
+        if (! $siswa) {
+            return back()->with('error', 'Siswa tidak ditemukan.');
+        }
 
-        $request->validate([
+        $validated = $request->validate([
             'lokasi_lat' => 'required',
             'lokasi_long' => 'required',
             'tipe' => 'required|in:masuk,pulang',
             'image' => 'required',
-            'device_time' => 'required', // Jam dari device siswa
+            'device_time' => 'required',
         ]);
 
-        $tgl = date('Y-m-d');
-        $jamDevice = $request->device_time; // Menggunakan jam sesuai device masing-masing
+        $sekarang = Carbon::now();
+        $jadwal = Presensi::jadwalPresensi($sekarang);
 
-        // Simpan gambar selfie ke storage public/uploads
-        $imgParts = explode(';', $request->image);
-        $imgBase64 = base64_decode(explode(',', $imgParts[1])[1]);
-        $fileName = 'selfie_' . $siswa->id . '_' . time() . '.png';
-        Storage::disk('public')->put('uploads/' . $fileName, $imgBase64);
-
-        if ($request->tipe == 'masuk') {
-            $cek = Presensi::where('siswa_id', $siswa->id)->whereDate('tgl_presensi', $tgl)->first();
-            if ($cek) return back()->with('error', 'Anda sudah melakukan presensi masuk hari ini.');
-
-            Presensi::create([
-                'siswa_id' => $siswa->id,
-                'tgl_presensi' => $tgl,
-                'jam_masuk' => $jamDevice, // Waktu sinkron dengan device
-                'lokasi_lat' => $request->lokasi_lat,
-                'lokasi_long' => $request->lokasi_long,
-                'foto_selfie' => $fileName,
-                'status' => 'hadir',
-            ]);
-            return redirect()->route('siswa.dashboard')->with('success', 'Presensi masuk berhasil direkam.');
-        } else {
-            $presensi = Presensi::where('siswa_id', $siswa->id)->whereDate('tgl_presensi', $tgl)->first();
-            if (!$presensi) return back()->with('error', 'Anda belum melakukan presensi masuk.');
-
-            $presensi->update(['jam_pulang' => $jamDevice]); // Waktu pulang sinkron dengan device
-            return redirect()->route('siswa.dashboard')->with('success', 'Presensi pulang berhasil direkam.');
+        if ($jadwal['libur']) {
+            return back()->with('error', 'Hari ini adalah hari libur, presensi tidak tersedia.');
         }
+
+        $jamBuka = Presensi::waktuPresensi($sekarang, $jadwal['jam_masuk']);
+        $jamTutup = Presensi::waktuPresensi($sekarang, $jadwal['jam_pulang']);
+
+        if ($sekarang->lessThan($jamBuka) || $sekarang->greaterThan($jamTutup)) {
+            return back()->with('error', 'Presensi hanya tersedia pukul '.$jadwal['jam_masuk'].' sampai '.$jadwal['jam_pulang'].'.');
+        }
+
+        $statusPresensi = Presensi::statusBeranda($siswa, $sekarang);
+
+        if ($validated['tipe'] !== $statusPresensi['sesi']) {
+            $pesan = $statusPresensi['sesi'] === 'pulang'
+                ? 'Anda sudah melakukan presensi masuk hari ini.'
+                : 'Anda belum melakukan presensi masuk.';
+
+            return back()->with('error', $pesan);
+        }
+
+        $imgParts = explode(';', $validated['image']);
+        $imgBase64 = base64_decode(explode(',', $imgParts[1])[1]);
+        $fileName = 'selfie_'.$siswa->id.'_'.time().'.png';
+        Storage::disk('public')->put('uploads/'.$fileName, $imgBase64);
+
+        $jamServer = $sekarang->format('H:i:s');
+        $tipePresensi = $validated['tipe'];
+
+        $hasil = DB::transaction(function () use ($siswa, $sekarang, $tipePresensi, $jamServer, $validated, $fileName, $jadwal) {
+            $presensi = Presensi::whereBelongsTo($siswa)
+                ->whereDate('tgl_presensi', $sekarang->toDateString())
+                ->latest('id')
+                ->lockForUpdate()
+                ->first();
+
+            if ($tipePresensi === 'masuk') {
+                if (Presensi::sudahPresensiMasuk($presensi)) {
+                    return ['error' => 'Anda sudah melakukan presensi masuk hari ini.'];
+                }
+
+                $dataPresensi = [
+                    'siswa_id' => $siswa->id,
+                    'tgl_presensi' => $sekarang->toDateString(),
+                    'jam_masuk' => $jamServer,
+                    'lokasi_lat' => $validated['lokasi_lat'],
+                    'lokasi_long' => $validated['lokasi_long'],
+                    'foto_selfie' => $fileName,
+                    'status' => $sekarang->greaterThan(Presensi::waktuPresensi($sekarang, $jadwal['jam_masuk']))
+                        ? Presensi::STATUS_TERLAMBAT
+                        : Presensi::STATUS_HADIR,
+                ];
+
+                if ($presensi?->status === Presensi::STATUS_ALPA) {
+                    $presensi->update($dataPresensi);
+                } else {
+                    Presensi::create($dataPresensi);
+                }
+
+                return ['success' => 'Presensi masuk berhasil direkam.'];
+            }
+
+            if (! Presensi::sudahPresensiMasuk($presensi)) {
+                return ['error' => 'Anda belum melakukan presensi masuk.'];
+            }
+
+            $presensi->update(['jam_pulang' => $jamServer]);
+
+            return ['success' => 'Presensi pulang berhasil direkam.'];
+        });
+
+        return redirect()->route('siswa.dashboard')->with(
+            isset($hasil['success']) ? 'success' : 'error',
+            $hasil['success'] ?? $hasil['error']
+        );
     }
 
-    // 3. Histori & Riwayat Absensi (Ref: Gambar 4.4 & 4.5)
     public function riwayat(Request $request)
     {
         $siswa = $this->getDataSiswa();
         $periode = $request->input('periode', date('Y-m'));
+        $bulan = Carbon::createFromFormat('!Y-m', $periode) ?: Carbon::now()->startOfMonth();
 
         $riwayats = collect();
         if ($siswa) {
+            Presensi::sinkronkanPengajuanBulanan($siswa, $bulan);
+            Presensi::sinkronkanAlpaBulanan($siswa, $bulan, Carbon::now());
             $riwayats = Presensi::where('siswa_id', $siswa->id)
-                ->where('tgl_presensi', 'LIKE', '%' . $periode . '%')
+                ->where('tgl_presensi', 'LIKE', '%'.$periode.'%')
                 ->latest()
                 ->get();
         }
@@ -108,7 +196,6 @@ class SiswaController extends Controller
         return view('portal.siswa.riwayat', compact('siswa', 'riwayats', 'periode'));
     }
 
-    // 4. Form Pengajuan Izin / Sakit / Dispen (Ref: Gambar 4.6)
     public function izinForm()
     {
         $siswa = $this->getDataSiswa();
@@ -116,13 +203,16 @@ class SiswaController extends Controller
         if ($siswa) {
             $pengajuans = PengajuanIzin::where('siswa_id', $siswa->id)->latest()->get();
         }
+
         return view('portal.siswa.izin', compact('siswa', 'pengajuans'));
     }
 
     public function storeIzin(Request $request)
     {
         $siswa = $this->getDataSiswa();
-        if (!$siswa) return back()->with('error', 'Siswa tidak ditemukan.');
+        if (! $siswa) {
+            return back()->with('error', 'Siswa tidak ditemukan.');
+        }
 
         $request->validate([
             'jenis_izin' => 'required|in:dispen,sakit,izin',
@@ -131,9 +221,6 @@ class SiswaController extends Controller
             'alasan' => 'required|string',
         ]);
 
-        // Catatan Alur: 
-        // Jika jenis_izin == 'dispen' -> otomatis masuk ke menu Approval Kesiswaan
-        // Jika jenis_izin == 'izin' atau 'sakit' -> otomatis masuk ke menu Approval Wali Kelas
         PengajuanIzin::create([
             'siswa_id' => $siswa->id,
             'tgl_pengajuan' => date('Y-m-d'),
@@ -147,10 +234,10 @@ class SiswaController extends Controller
         return back()->with('success', 'Pengajuan berhasil dikirim (Dispen ke Kesiswaan, Izin/Sakit ke Wali Kelas).');
     }
 
-    // 5. Profil Siswa (Ref: Gambar 4.7)
     public function profile()
     {
         $siswa = $this->getDataSiswa();
+
         return view('portal.siswa.profile', compact('siswa'));
     }
 

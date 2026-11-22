@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\MappingWaliKelas;
+use App\Models\PengajuanIzin;
+use App\Models\Presensi;
+use App\Models\Siswa;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Models\MappingWaliKelas;
-use App\Models\Siswa;
-use App\Models\Presensi;
-use App\Models\PengajuanIzin;
 
 class WaliKelasController extends Controller
 {
@@ -15,6 +15,7 @@ class WaliKelasController extends Controller
     private function getKelasBinaan()
     {
         $mapping = MappingWaliKelas::where('user_id', Auth::id())->first();
+
         return $mapping ? $mapping->nama_kelas : null;
     }
 
@@ -22,16 +23,16 @@ class WaliKelasController extends Controller
     public function dashboard()
     {
         $kelas = $this->getKelasBinaan();
-        
+
         // Jika belum dimapping ke kelas manapun, berikan nilai default kosong
-        if (!$kelas) {
+        if (! $kelas) {
             return view('portal.walikelas.dashboard', [
                 'kelas' => 'Belum Dimapping',
                 'totalSiswa' => 0,
                 'hadirHariIni' => 0,
                 'izinPending' => 0,
                 'alpaHariIni' => 0,
-                'siswas' => collect()
+                'siswas' => collect(),
             ]);
         }
 
@@ -65,14 +66,13 @@ class WaliKelasController extends Controller
     // Aksi Approval Izin / Sakit
     public function updateIzin(Request $request, $id)
     {
-        $request->validate([
+        $validated = $request->validate([
             'status_approval' => 'required|in:Disetujui,Ditolak',
         ]);
 
         $izin = PengajuanIzin::findOrFail($id);
-        $izin->update([
-            'status_approval' => $request->status_approval,
-        ]);
+        $izin->update($validated);
+        Presensi::sinkronkanPengajuan($izin->fresh());
 
         return back()->with('success', 'Status pengajuan izin/sakit berhasil diperbarui.');
     }
@@ -81,7 +81,7 @@ class WaliKelasController extends Controller
     public function rekapKelas()
     {
         $kelas = $this->getKelasBinaan();
-        $siswas = Siswa::with(['presensis' => function($q) {
+        $siswas = Siswa::with(['presensis' => function ($q) {
             $q->whereDate('tgl_presensi', date('Y-m-d'));
         }])->where('kelas', $kelas)->get();
 

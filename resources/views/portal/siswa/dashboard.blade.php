@@ -25,12 +25,21 @@
         <div>
             <span class="text-muted" style="font-size: 11px; font-weight:700;">STATUS KEHADIRAN HARI INI</span>
             <h6 class="fw-bold text-dark mb-0 mt-1">
-                @if($presensiHariIni)
-                    <span class="text-success">Sudah Absen ({{ $presensiHariIni->jam_masuk }})</span>
+                @if(in_array($sesiPresensi, ['libur', 'izin'], true))
+                    <span class="text-muted">{{ $teksStatusPresensi }}</span>
+                @elseif(in_array($sesiPresensi, ['pulang', 'selesai'], true))
+                    <span class="text-success">{{ $teksStatusPresensi }}</span>
                 @else
-                    <span class="text-danger">Belum Absen</span>
+                    <span class="text-danger">{{ $teksStatusPresensi }}</span>
                 @endif
             </h6>
+            <small class="text-muted d-block mt-1" style="font-size: 10px;">
+                @if($jadwalPresensi['libur'])
+                    {{ $jadwalPresensi['keterangan'] ?? 'Hari Libur' }}
+                @else
+                    Jam presensi: {{ $jadwalPresensi['jam_masuk'] }} - {{ $jadwalPresensi['jam_pulang'] }}
+                @endif
+            </small>
         </div>
         <i class="fa-solid fa-circle-check text-success fs-3"></i>
     </div>
@@ -79,8 +88,8 @@
 <!-- Tombol Aksi Cepat -->
 <div class="row g-2">
     <div class="col-6">
-        <a href="{{ route('siswa.presensi') }}" class="btn btn-primary w-100 py-2 fw-semibold rounded-3 shadow-sm" style="font-size: 13px; background-color: #1b3167;">
-            <i class="fa-solid fa-camera me-1"></i> Presensi Masuk
+        <a href="{{ route('siswa.presensi') }}" class="btn btn-primary w-100 py-2 fw-semibold rounded-3 shadow-sm {{ in_array($sesiPresensi, ['selesai', 'libur'], true) ? 'disabled pe-none opacity-50' : '' }}" style="font-size: 13px; background-color: #1b3167;">
+            <i class="fa-solid fa-camera me-1"></i> {{ $teksTombolPresensi }}
         </a>
     </div>
     <div class="col-6">

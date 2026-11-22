@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\Presensi;
 use App\Models\PengajuanIzin;
+use App\Models\Presensi;
 use App\Models\Siswa;
+use Illuminate\Http\Request;
 
 class KesiswaanController extends Controller
 {
@@ -27,20 +27,20 @@ class KesiswaanController extends Controller
     {
         // Kesiswaan khusus menangani pengajuan dengan jenis 'dispen'
         $pengajuans = PengajuanIzin::with('siswa')->where('jenis_izin', 'dispen')->latest()->get();
+
         return view('portal.kesiswaan.dispen', compact('pengajuans'));
     }
 
     // Aksi Approval Dispen (Setujui / Tolak)
     public function updateDispen(Request $request, $id)
     {
-        $request->validate([
+        $validated = $request->validate([
             'status_approval' => 'required|in:Disetujui,Ditolak',
         ]);
 
         $izin = PengajuanIzin::findOrFail($id);
-        $izin->update([
-            'status_approval' => $request->status_approval,
-        ]);
+        $izin->update($validated);
+        Presensi::sinkronkanPengajuan($izin->fresh());
 
         return back()->with('success', 'Status pengajuan dispensasi berhasil diperbarui.');
     }
@@ -49,6 +49,7 @@ class KesiswaanController extends Controller
     public function monitoring()
     {
         $presensis = Presensi::with('siswa')->latest()->take(50)->get();
+
         return view('portal.kesiswaan.monitoring', compact('presensis'));
     }
 }

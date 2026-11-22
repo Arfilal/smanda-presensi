@@ -4,6 +4,13 @@
 <div class="card card-custom p-3 bg-white mb-3">
     <h6 class="fw-bold mb-1 text-dark" style="font-size: 14px;">FORM PRESENSI MANDIRI</h6>
     <small class="text-muted" style="font-size: 11px;">{{ $siswa->nama_lengkap ?? '-' }} | {{ $siswa->kelas ?? '-' }}</small>
+    <small class="text-muted d-block mt-1" style="font-size: 11px;">
+        @if($jadwalPresensi['libur'])
+            {{ $teksStatusPresensi }}
+        @else
+            Sesi {{ strtoupper($sesiPresensi) }} | Jam presensi: {{ $jadwalPresensi['jam_masuk'] }} - {{ $jadwalPresensi['jam_pulang'] }}
+        @endif
+    </small>
 </div>
 
 <!-- Informasi Waktu Device Real-Time -->
@@ -49,12 +56,12 @@
     <div class="mb-3">
         <label class="form-label small fw-semibold">Sesi Presensi:</label>
         <select name="tipe" class="form-select form-select-sm" required>
-            <option value="masuk">Presensi Masuk (Check-In)</option>
-            <option value="pulang">Presensi Pulang (Check-Out)</option>
+            <option value="masuk" @selected($sesiPresensi === 'masuk')>Presensi Masuk (Check-In)</option>
+            <option value="pulang" @selected($sesiPresensi === 'pulang')>Presensi Pulang (Check-Out)</option>
         </select>
     </div>
 
-    <button type="submit" class="btn btn-primary w-100 fw-semibold py-2 rounded-pill shadow-sm" style="background-color: #1b3167; font-size: 13px;" id="btnKirim">Kirim Data Presensi</button>
+    <button type="submit" class="btn btn-primary w-100 fw-semibold py-2 rounded-pill shadow-sm" style="background-color: #1b3167; font-size: 13px;" id="btnKirim">{{ $sesiPresensi === 'pulang' ? 'Kirim Presensi Pulang' : 'Kirim Data Presensi' }}</button>
 </form>
 
 <div class="text-center mt-3">
